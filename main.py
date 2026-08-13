@@ -57,14 +57,14 @@ async def download_target_pdf(api_id: int, api_hash: str, session_str: str, date
         return False
 
 PERSONALIZED_QUOTES = [
-    "Go get the day, my stunning lady! You've got this, and I'm always cheering for you.",
-    "Good morning, my love! Shine bright today and conquer everything with your amazing smile.",
-    "Wake up and be awesome! Wishing the most beautiful woman an extraordinary day ahead.",
-    "Remember today how brilliant, strong, and deeply cherished you are. Go get 'em, my lady!",
-    "Another day, another opportunity for you to do great things. Keep inspiring, my stunning partner!",
-    "Good morning gorgeous! May your day be as radiant and wonderful as you are to me.",
-    "Believe in yourself today as much as I believe in you every single second. Have a fabulous day!",
-    "Sending you a warm hug, positive energy, and all my love to start your morning. Go rule the day!"
+    "Go get the day, my stunning lady! You've got this.",
+    "Good morning gorgeous! Go out there and shine bright today.",
+    "Believe in yourself today as much as I believe in you every single second.",
+    "Remember today how brilliant, strong, and deeply loved you are.",
+    "Go conquer the world today, my stunning girl!",
+    "Start your day with a smile and know that I'm always cheering for you.",
+    "Whatever you tackle today, you're going to crush it. Go get 'em, my lady!",
+    "Wake up and be awesome! Wishing you an extraordinary day ahead."
 ]
 
 def get_daily_quote() -> str:
@@ -85,12 +85,12 @@ def send_email(pdf_path: str, date_str: str, app_password: str) -> bool:
         
         email_body = f"""Good morning, my stunning lady! ❤️
 
-Here is your Indian Express newspaper for {date_str}.
+Here is today's Indian Express newspaper for you ({date_str}).
 
-✨ Thought of the Day ✨
+✨ Thought of the Day:
 "{quote}"
 
-Go get the day and have an incredible morning!
+Go get the day!
 """
         msg.set_content(email_body)
 
