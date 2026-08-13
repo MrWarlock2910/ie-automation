@@ -11,7 +11,7 @@ from telethon.errors import RPCError
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-SENDER_EMAIL = "bhattacharyasoham29@gmail.com"
+SENDER_EMAIL = "soham.techanalogy@gmail.com"
 RECIPIENT_EMAIL = "lisakinny12@gmail.com"
 TARGET_CHANNEL = "Indian_Express_Newspaper_p"
 SMTP_SERVER = "smtp.gmail.com"
