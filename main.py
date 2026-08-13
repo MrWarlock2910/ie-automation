@@ -56,15 +56,43 @@ async def download_target_pdf(api_id: int, api_hash: str, session_str: str, date
         logging.error(f"Unexpected error while downloading Telegram media: {e}")
         return False
 
+PERSONALIZED_QUOTES = [
+    "Go get the day, my stunning lady! You've got this, and I'm always cheering for you.",
+    "Good morning, my love! Shine bright today and conquer everything with your amazing smile.",
+    "Wake up and be awesome! Wishing the most beautiful woman an extraordinary day ahead.",
+    "Remember today how brilliant, strong, and deeply cherished you are. Go get 'em, my lady!",
+    "Another day, another opportunity for you to do great things. Keep inspiring, my stunning partner!",
+    "Good morning gorgeous! May your day be as radiant and wonderful as you are to me.",
+    "Believe in yourself today as much as I believe in you every single second. Have a fabulous day!",
+    "Sending you a warm hug, positive energy, and all my love to start your morning. Go rule the day!"
+]
+
+def get_daily_quote() -> str:
+    """Return a dynamic personalized quote based on the current day of the year."""
+    ist_now = datetime.now(timezone(timedelta(hours=5, minutes=30)))
+    day_of_year = ist_now.timetuple().tm_yday
+    return PERSONALIZED_QUOTES[day_of_year % len(PERSONALIZED_QUOTES)]
+
 def send_email(pdf_path: str, date_str: str, app_password: str) -> bool:
-    """Construct EmailMessage payload and send via SMTP_SSL over Gmail."""
+    """Construct EmailMessage payload and send via SMTP over Gmail."""
     logging.info(f"Preparing email payload for recipient {RECIPIENT_EMAIL}...")
     try:
+        quote = get_daily_quote()
         msg = EmailMessage()
         msg["From"] = SENDER_EMAIL
         msg["To"] = RECIPIENT_EMAIL
         msg["Subject"] = f"Indian Express Mumbai - [{date_str}]"
-        msg.set_content("Attached.")
+        
+        email_body = f"""Good morning, my stunning lady! ❤️
+
+Here is your Indian Express newspaper for {date_str}.
+
+✨ Thought of the Day ✨
+"{quote}"
+
+Go get the day and have an incredible morning!
+"""
+        msg.set_content(email_body)
 
         with open(pdf_path, "rb") as f:
             file_data = f.read()
