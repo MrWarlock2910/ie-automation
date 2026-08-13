@@ -22,19 +22,23 @@ def get_ist_date() -> str:
     ist = datetime.now(timezone(timedelta(hours=5, minutes=30)))
     return ist.strftime("%d-%m-%Y")
 
-async def download_target_pdf(api_id: int, api_hash: str, session_str: str, target_filename: str, output_path: str) -> bool:
+async def download_target_pdf(api_id: int, api_hash: str, session_str: str, date_str: str, output_path: str) -> bool:
     """Authenticate TelegramClient using StringSession, search recent messages, and download target file."""
-    logging.info(f"Connecting to Telegram to locate file: {target_filename}")
+    target_filenames = [
+        f"IE Mumbai [{date_str}].pdf",
+        f"IE Mumbai {date_str}.pdf"
+    ]
+    logging.info(f"Connecting to Telegram to locate file for date: {date_str}")
     try:
         async with TelegramClient(StringSession(session_str), api_id, api_hash) as client:
             target_msg = None
             async for message in client.iter_messages(TARGET_CHANNEL, limit=20):
-                if message.file and message.file.name == target_filename:
+                if message.file and message.file.name in target_filenames:
                     target_msg = message
                     break
 
             if not target_msg:
-                logging.error(f"Target file '{target_filename}' not found in recent 20 messages of channel '{TARGET_CHANNEL}'.")
+                logging.error(f"Target file matching {target_filenames} not found in recent 20 messages of channel '{TARGET_CHANNEL}'.")
                 return False
 
             logging.info(f"Target file found. Downloading to {output_path}...")
@@ -73,8 +77,11 @@ def send_email(pdf_path: str, date_str: str, app_password: str) -> bool:
             filename=file_name
         )
 
-        logging.info(f"Connecting to SMTP SSL server {SMTP_SERVER}:{SMTP_PORT}...")
-        with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT, timeout=30) as server:
+        logging.info(f"Connecting to SMTP server {SMTP_SERVER}:587...")
+        with smtplib.SMTP(SMTP_SERVER, 587, timeout=180) as server:
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
             server.login(SENDER_EMAIL, app_password)
             server.send_message(msg)
             logging.info("Email payload transmitted successfully.")
@@ -128,7 +135,7 @@ async def main():
     pdf_path = os.path.join(tmp_dir, target_filename)
 
     try:
-        success = await download_target_pdf(api_id, api_hash, session_string, target_filename, pdf_path)
+        success = await download_target_pdf(api_id, api_hash, session_string, date_str, pdf_path)
         if success:
             email_sent = send_email(pdf_path, date_str, app_password)
             if not email_sent:
