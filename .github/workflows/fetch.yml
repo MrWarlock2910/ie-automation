@@ -2,7 +2,8 @@ name: IE Automation Pipeline
 
 on:
   schedule:
-    - cron: '30 3 * * *'
+    - cron: '30 2 * * *'  # 02:30 UTC = 08:00 AM IST
+    - cron: '45 2 * * *'  # 02:45 UTC = 08:15 AM IST
   workflow_dispatch:
 
 jobs:
