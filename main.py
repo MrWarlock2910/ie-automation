@@ -1,5 +1,6 @@
 import os
 import sys
+import io
 import logging
 import asyncio
 import smtplib
@@ -38,9 +39,9 @@ def get_daily_quote() -> str:
     day_of_year = ist_now.timetuple().tm_yday
     return PERSONALIZED_QUOTES[day_of_year % len(PERSONALIZED_QUOTES)]
 
-def send_email(pdf_path: str, date_str: str, app_password: str) -> bool:
-    """Construct EmailMessage payload and send via SMTP over Gmail."""
-    logging.info(f"Preparing email payload for recipient {RECIPIENT_EMAIL}...")
+def send_email(pdf_bytes: bytes, filename: str, date_str: str, app_password: str) -> bool:
+    """Construct EmailMessage payload directly from in-memory buffer and send via SMTP over Gmail."""
+    logging.info(f"Preparing email payload ({len(pdf_bytes)} bytes) for recipient {RECIPIENT_EMAIL}...")
     try:
         quote = get_daily_quote()
         msg = EmailMessage()
@@ -59,15 +60,11 @@ Go get the day!
 """
         msg.set_content(email_body)
 
-        with open(pdf_path, "rb") as f:
-            file_data = f.read()
-            file_name = os.path.basename(pdf_path)
-
         msg.add_attachment(
-            file_data,
+            pdf_bytes,
             maintype="application",
             subtype="pdf",
-            filename=file_name
+            filename=filename
         )
 
         logging.info(f"Connecting to SMTP server {SMTP_SERVER}:587...")
@@ -89,15 +86,6 @@ Go get the day!
         logging.error(f"Failed to transmit email: {e}")
         return False
 
-def cleanup_tmp_file(file_path: str) -> None:
-    """Safely remove downloaded file from temporary storage."""
-    if os.path.exists(file_path):
-        try:
-            os.remove(file_path)
-            logging.info(f"Cleaned up temporary file: {file_path}")
-        except Exception as e:
-            logging.error(f"Error cleaning up file {file_path}: {e}")
-
 async def run_pipeline(api_id: int, api_hash: str, session_str: str, app_password: str):
     date_str = get_ist_date()
     sent_tag = f"SENT: IE Mumbai {date_str}"
@@ -105,15 +93,11 @@ async def run_pipeline(api_id: int, api_hash: str, session_str: str, app_passwor
         f"IE Mumbai [{date_str}].pdf",
         f"IE Mumbai {date_str}.pdf"
     ]
-    
-    tmp_dir = "/tmp" if os.path.exists("/tmp") else os.getenv("TEMP", "/tmp")
-    os.makedirs(tmp_dir, exist_ok=True)
-    pdf_path = os.path.join(tmp_dir, f"IE Mumbai [{date_str}].pdf")
 
     logging.info(f"Connecting to Telegram (Date: {date_str})...")
     try:
         async with TelegramClient(StringSession(session_str), api_id, api_hash) as client:
-            # Step 1: Check if today's paper was already delivered
+            # 1. State Check: Check if today's paper was already delivered
             already_sent = False
             async for msg in client.iter_messages('me', limit=15):
                 if msg.text and sent_tag in msg.text:
@@ -124,7 +108,7 @@ async def run_pipeline(api_id: int, api_hash: str, session_str: str, app_passwor
                 logging.info(f"Today's edition ({date_str}) was ALREADY delivered successfully. Skipping attempt.")
                 return
 
-            # Step 2: Search for target paper in channel
+            # 2. Search target paper in channel
             logging.info(f"Searching channel '{TARGET_CHANNEL}' for {target_filenames}...")
             target_msg = None
             async for message in client.iter_messages(TARGET_CHANNEL, limit=20):
@@ -136,19 +120,26 @@ async def run_pipeline(api_id: int, api_hash: str, session_str: str, app_passwor
                 logging.info(f"Paper for date {date_str} is not published on Telegram yet. Will retry on next scheduled fallback.")
                 return
 
-            # Step 3: Download media
-            logging.info(f"Target file found. Downloading to {pdf_path}...")
-            await target_msg.download_media(file=pdf_path)
+            # 3. Direct In-Memory Download (Zero Disk I/O)
+            logging.info("Target file found. Streaming into memory buffer...")
+            pdf_buffer = io.BytesIO()
+            await target_msg.download_media(file=pdf_buffer)
+            pdf_bytes = pdf_buffer.getvalue()
             
-            if not (os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 0):
-                logging.error("Download completed but destination file is missing or empty.")
+            if not pdf_bytes or len(pdf_bytes) == 0:
+                logging.error("Download completed but memory buffer is empty.")
                 sys.exit(1)
 
-            # Step 4: Transmit email
-            email_sent = send_email(pdf_path, date_str, app_password)
+            logging.info(f"Memory stream complete ({len(pdf_bytes)} bytes).")
+
+            # 4. Transmit Email Payload
+            attachment_name = target_msg.file.name or f"IE Mumbai [{date_str}].pdf"
+            email_sent = send_email(pdf_bytes, attachment_name, date_str, app_password)
+            
             if email_sent:
-                # Step 5: Mark state as sent in Saved Messages
-                await client.send_message('me', f"{sent_tag} at {datetime.now(timezone(timedelta(hours=5, minutes=30))).strftime('%H:%M:%S')}")
+                # 5. Record State Tag in Telegram Saved Messages ('me')
+                ist_time_str = datetime.now(timezone(timedelta(hours=5, minutes=30))).strftime('%H:%M:%S')
+                await client.send_message('me', f"{sent_tag} at {ist_time_str}")
                 logging.info(f"State recorded in Saved Messages: '{sent_tag}'")
             else:
                 logging.error("Email delivery failed.")
@@ -160,8 +151,6 @@ async def run_pipeline(api_id: int, api_hash: str, session_str: str, app_passwor
     except Exception as e:
         logging.error(f"Unexpected error in pipeline: {e}")
         sys.exit(1)
-    finally:
-        cleanup_tmp_file(pdf_path)
 
 def main():
     api_id_env = os.environ.get("API_ID")
