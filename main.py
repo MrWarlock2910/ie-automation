@@ -17,6 +17,11 @@ RECIPIENT_EMAIL = "lisakinny12@gmail.com"
 TARGET_CHANNEL = "Indian_Express_Newspaper_p"
 SMTP_SERVER = "smtp.gmail.com"
 
+# Poll interval in seconds while actively watching for the morning paper
+POLL_INTERVAL_SECONDS = 45
+# Maximum time (in minutes) the watcher will run before exiting for the day
+MAX_WATCH_DURATION_MINUTES = 160
+
 PERSONALIZED_QUOTES = [
     "Go get the day, my stunning lady! You've got this.",
     "Good morning gorgeous! Go out there and shine bright today.",
@@ -28,15 +33,17 @@ PERSONALIZED_QUOTES = [
     "Wake up and be awesome! Wishing you an extraordinary day ahead."
 ]
 
+def get_ist_now() -> datetime:
+    """Return current datetime in IST (UTC+5:30)."""
+    return datetime.now(timezone(timedelta(hours=5, minutes=30)))
+
 def get_ist_date() -> str:
     """Calculate current date in DD-MM-YYYY format adjusted for IST (UTC+5:30)."""
-    ist = datetime.now(timezone(timedelta(hours=5, minutes=30)))
-    return ist.strftime("%d-%m-%Y")
+    return get_ist_now().strftime("%d-%m-%Y")
 
 def get_daily_quote() -> str:
     """Return a dynamic personalized quote based on the current day of the year."""
-    ist_now = datetime.now(timezone(timedelta(hours=5, minutes=30)))
-    day_of_year = ist_now.timetuple().tm_yday
+    day_of_year = get_ist_now().timetuple().tm_yday
     return PERSONALIZED_QUOTES[day_of_year % len(PERSONALIZED_QUOTES)]
 
 def send_email(pdf_bytes: bytes, filename: str, date_str: str, app_password: str) -> bool:
@@ -94,10 +101,12 @@ async def run_pipeline(api_id: int, api_hash: str, session_str: str, app_passwor
         f"IE Mumbai {date_str}.pdf"
     ]
 
-    logging.info(f"Connecting to Telegram (Date: {date_str})...")
+    start_time = get_ist_now()
+    logging.info(f"Starting Morning Watcher Loop (Date: {date_str}, Started at: {start_time.strftime('%H:%M:%S IST')})...")
+
     try:
         async with TelegramClient(StringSession(session_str), api_id, api_hash) as client:
-            # 1. State Check: Check if today's paper was already delivered
+            # 1. Deduplication check: Check if today's paper was already delivered
             already_sent = False
             async for msg in client.iter_messages('me', limit=15):
                 if msg.text and sent_tag in msg.text:
@@ -105,51 +114,58 @@ async def run_pipeline(api_id: int, api_hash: str, session_str: str, app_passwor
                     break
 
             if already_sent:
-                logging.info(f"Today's edition ({date_str}) was ALREADY delivered successfully. Skipping attempt.")
+                logging.info(f"Today's edition ({date_str}) was ALREADY delivered. Skipping watcher.")
                 return
 
-            # 2. Search target paper in channel
-            logging.info(f"Searching channel '{TARGET_CHANNEL}' for {target_filenames}...")
-            target_msg = None
-            async for message in client.iter_messages(TARGET_CHANNEL, limit=20):
-                if message.file and message.file.name in target_filenames:
-                    target_msg = message
+            # 2. Active Morning Watcher Loop
+            attempt_count = 0
+            while True:
+                attempt_count += 1
+                current_time = get_ist_now()
+                elapsed_minutes = (current_time - start_time).total_seconds() / 60
+
+                if elapsed_minutes >= MAX_WATCH_DURATION_MINUTES:
+                    logging.info(f"Max watch duration of {MAX_WATCH_DURATION_MINUTES} mins reached. Exiting watcher for today.")
                     break
 
-            if not target_msg:
-                logging.info(f"Paper for date {date_str} is not published on Telegram yet. Will retry on next scheduled fallback.")
-                return
+                logging.info(f"[Check #{attempt_count}] Scanning '{TARGET_CHANNEL}' for {target_filenames}...")
+                target_msg = None
+                async for message in client.iter_messages(TARGET_CHANNEL, limit=20):
+                    if message.file and message.file.name in target_filenames:
+                        target_msg = message
+                        break
 
-            # 3. Direct In-Memory Download (Zero Disk I/O)
-            logging.info("Target file found. Streaming into memory buffer...")
-            pdf_buffer = io.BytesIO()
-            await target_msg.download_media(file=pdf_buffer)
-            pdf_bytes = pdf_buffer.getvalue()
-            
-            if not pdf_bytes or len(pdf_bytes) == 0:
-                logging.error("Download completed but memory buffer is empty.")
-                sys.exit(1)
+                if target_msg:
+                    logging.info(f"🎉 Target file found: '{target_msg.file.name}'! Streaming into memory...")
+                    pdf_buffer = io.BytesIO()
+                    await target_msg.download_media(file=pdf_buffer)
+                    pdf_bytes = pdf_buffer.getvalue()
 
-            logging.info(f"Memory stream complete ({len(pdf_bytes)} bytes).")
+                    if not pdf_bytes or len(pdf_bytes) == 0:
+                        logging.error("Download completed but memory buffer is empty.")
+                        sys.exit(1)
 
-            # 4. Transmit Email Payload
-            attachment_name = target_msg.file.name or f"IE Mumbai [{date_str}].pdf"
-            email_sent = send_email(pdf_bytes, attachment_name, date_str, app_password)
-            
-            if email_sent:
-                # 5. Record State Tag in Telegram Saved Messages ('me')
-                ist_time_str = datetime.now(timezone(timedelta(hours=5, minutes=30))).strftime('%H:%M:%S')
-                await client.send_message('me', f"{sent_tag} at {ist_time_str}")
-                logging.info(f"State recorded in Saved Messages: '{sent_tag}'")
-            else:
-                logging.error("Email delivery failed.")
-                sys.exit(1)
+                    logging.info(f"Memory download complete ({len(pdf_bytes)} bytes). Transmitting email...")
+                    attachment_name = target_msg.file.name or f"IE Mumbai [{date_str}].pdf"
+                    email_sent = send_email(pdf_bytes, attachment_name, date_str, app_password)
+
+                    if email_sent:
+                        delivered_time = get_ist_now().strftime('%H:%M:%S IST')
+                        await client.send_message('me', f"{sent_tag} at {delivered_time}")
+                        logging.info(f"✅ State recorded in Saved Messages: '{sent_tag} at {delivered_time}'. Pipeline complete!")
+                        return
+                    else:
+                        logging.error("Email delivery failed.")
+                        sys.exit(1)
+
+                logging.info(f"Paper not published yet (Elapsed: {int(elapsed_minutes)}m). Watching channel... Next check in {POLL_INTERVAL_SECONDS}s.")
+                await asyncio.sleep(POLL_INTERVAL_SECONDS)
 
     except RPCError as e:
         logging.error(f"Telegram RPC Error during execution: {e}")
         sys.exit(1)
     except Exception as e:
-        logging.error(f"Unexpected error in pipeline: {e}")
+        logging.error(f"Unexpected error in watcher pipeline: {e}")
         sys.exit(1)
 
 def main():
