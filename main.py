@@ -20,7 +20,7 @@ SMTP_SERVER = "smtp.gmail.com"
 # Poll interval in seconds while actively watching for the morning paper
 POLL_INTERVAL_SECONDS = 45
 # Maximum time (in minutes) the watcher will run per heartbeat before exiting cleanly
-MAX_WATCH_DURATION_MINUTES = 3
+MAX_WATCH_DURATION_MINUTES = 1
 
 PERSONALIZED_QUOTES = [
     "Go get the day, my stunning lady! You've got this.",
