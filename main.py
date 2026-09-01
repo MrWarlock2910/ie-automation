@@ -46,6 +46,15 @@ def get_daily_quote() -> str:
     day_of_year = get_ist_now().timetuple().tm_yday
     return PERSONALIZED_QUOTES[day_of_year % len(PERSONALIZED_QUOTES)]
 
+def is_target_newspaper(filename: str, date_str: str) -> bool:
+    """Robust, casing- and delimiter-agnostic filename matcher for Mumbai editions."""
+    if not filename:
+        return False
+    # Normalize: strip spaces, brackets, parentheses, underscores, lowercase
+    cleaned = filename.lower().replace(" ", "").replace("_", "").replace("[", "").replace("]", "").replace("(", "").replace(")", "")
+    date_normalized = date_str.lower().replace(" ", "").replace("_", "")
+    return ("iemumbai" in cleaned or "indianexpressmumbai" in cleaned) and date_normalized in cleaned and cleaned.endswith(".pdf")
+
 def send_email(pdf_bytes: bytes, filename: str, date_str: str, app_password: str) -> bool:
     """Construct EmailMessage payload directly from in-memory buffer and send via SMTP over Gmail."""
     logging.info(f"Preparing email payload ({len(pdf_bytes)} bytes) for recipient {RECIPIENT_EMAIL}...")
@@ -106,10 +115,6 @@ async def run_pipeline(api_id: int, api_hash: str, session_str: str, app_passwor
 
     date_str = get_ist_date()
     sent_tag = f"SENT: IE Mumbai {date_str}"
-    target_filenames = [
-        f"IE Mumbai [{date_str}].pdf",
-        f"IE Mumbai {date_str}.pdf"
-    ]
 
     start_time = get_ist_now()
     logging.info(f"Starting Heartbeat Check (Date: {date_str}, Time: {start_time.strftime('%H:%M:%S IST')})...")
@@ -127,7 +132,7 @@ async def run_pipeline(api_id: int, api_hash: str, session_str: str, app_passwor
                 logging.info(f"Today's edition ({date_str}) was ALREADY delivered. Skipping heartbeat.")
                 return
 
-            # 2. Active Morning Watcher Loop
+            # 3. Active Heartbeat Scan Loop
             attempt_count = 0
             while True:
                 attempt_count += 1
@@ -135,18 +140,18 @@ async def run_pipeline(api_id: int, api_hash: str, session_str: str, app_passwor
                 elapsed_minutes = (current_time - start_time).total_seconds() / 60
 
                 if elapsed_minutes >= MAX_WATCH_DURATION_MINUTES:
-                    logging.info(f"Max watch duration of {MAX_WATCH_DURATION_MINUTES} mins reached. Exiting watcher for today.")
+                    logging.info(f"Heartbeat scan limit ({MAX_WATCH_DURATION_MINUTES}m) reached without new upload. Exiting until next heartbeat.")
                     break
 
-                logging.info(f"[Check #{attempt_count}] Scanning '{TARGET_CHANNEL}' for {target_filenames}...")
+                logging.info(f"[Check #{attempt_count}] Scanning '{TARGET_CHANNEL}' for Mumbai edition ({date_str})...")
                 target_msg = None
                 async for message in client.iter_messages(TARGET_CHANNEL, limit=20):
-                    if message.file and message.file.name in target_filenames:
+                    if message.file and is_target_newspaper(message.file.name, date_str):
                         target_msg = message
                         break
 
                 if target_msg:
-                    logging.info(f"🎉 Target file found: '{target_msg.file.name}'! Streaming into memory...")
+                    logging.info(f"[MATCH FOUND] Target file: '{target_msg.file.name}'. Streaming into memory...")
                     pdf_buffer = io.BytesIO()
                     await target_msg.download_media(file=pdf_buffer)
                     pdf_bytes = pdf_buffer.getvalue()
@@ -162,20 +167,20 @@ async def run_pipeline(api_id: int, api_hash: str, session_str: str, app_passwor
                     if email_sent:
                         delivered_time = get_ist_now().strftime('%H:%M:%S IST')
                         await client.send_message('me', f"{sent_tag} at {delivered_time}")
-                        logging.info(f"✅ State recorded in Saved Messages: '{sent_tag} at {delivered_time}'. Pipeline complete!")
+                        logging.info(f"[COMPLETED] State recorded in Saved Messages: '{sent_tag} at {delivered_time}'. Done!")
                         return
                     else:
                         logging.error("Email delivery failed.")
                         sys.exit(1)
 
-                logging.info(f"Paper not published yet (Elapsed: {int(elapsed_minutes)}m). Watching channel... Next check in {POLL_INTERVAL_SECONDS}s.")
+                logging.info(f"Paper for {date_str} not published yet. Next check in {POLL_INTERVAL_SECONDS}s.")
                 await asyncio.sleep(POLL_INTERVAL_SECONDS)
 
     except RPCError as e:
         logging.error(f"Telegram RPC Error during execution: {e}")
         sys.exit(1)
     except Exception as e:
-        logging.error(f"Unexpected error in watcher pipeline: {e}")
+        logging.error(f"Unexpected error in pipeline: {e}")
         sys.exit(1)
 
 def main():
