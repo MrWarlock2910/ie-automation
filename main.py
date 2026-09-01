@@ -94,6 +94,16 @@ Go get the day!
         return False
 
 async def run_pipeline(api_id: int, api_hash: str, session_str: str, app_password: str):
+    current_ist = get_ist_now()
+    hour = current_ist.hour
+    minute = current_ist.minute
+
+    # 1. Active Window Guard: Only run between 07:30 AM and 07:00 PM IST
+    is_active = (hour == 7 and minute >= 30) or (8 <= hour < 19)
+    if not is_active:
+        logging.info(f"Current time ({current_ist.strftime('%H:%M:%S IST')}) is outside active hours (07:30 - 19:00 IST). Skipping.")
+        return
+
     date_str = get_ist_date()
     sent_tag = f"SENT: IE Mumbai {date_str}"
     target_filenames = [
@@ -102,11 +112,11 @@ async def run_pipeline(api_id: int, api_hash: str, session_str: str, app_passwor
     ]
 
     start_time = get_ist_now()
-    logging.info(f"Starting Morning Watcher Loop (Date: {date_str}, Started at: {start_time.strftime('%H:%M:%S IST')})...")
+    logging.info(f"Starting Heartbeat Check (Date: {date_str}, Time: {start_time.strftime('%H:%M:%S IST')})...")
 
     try:
         async with TelegramClient(StringSession(session_str), api_id, api_hash) as client:
-            # 1. Deduplication check: Check if today's paper was already delivered
+            # 2. Deduplication check: Check if today's paper was already delivered
             already_sent = False
             async for msg in client.iter_messages('me', limit=15):
                 if msg.text and sent_tag in msg.text:
@@ -114,7 +124,7 @@ async def run_pipeline(api_id: int, api_hash: str, session_str: str, app_passwor
                     break
 
             if already_sent:
-                logging.info(f"Today's edition ({date_str}) was ALREADY delivered. Skipping watcher.")
+                logging.info(f"Today's edition ({date_str}) was ALREADY delivered. Skipping heartbeat.")
                 return
 
             # 2. Active Morning Watcher Loop
