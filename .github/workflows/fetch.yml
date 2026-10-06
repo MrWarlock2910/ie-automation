@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       force:
-        description: 'Force run ignoring delivery cache'
+        description: 'Force run ignoring delivery cache and active window'
         required: false
         default: false
         type: boolean
@@ -18,37 +18,68 @@ concurrency:
 
 jobs:
   run-pipeline:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 180
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Calculate IST Date
+      - name: Evaluate Execution Window & IST Date
         id: ist-info
         run: |
           IST_DATE=$(TZ='Asia/Kolkata' date +'%d-%m-%Y')
+          IST_HOUR=$(TZ='Asia/Kolkata' date +'%H')
+          IST_MINUTE=$(TZ='Asia/Kolkata' date +'%M')
+          IST_TIME_STR=$(TZ='Asia/Kolkata' date +'%H:%M:%S')
+
           echo "date=${IST_DATE}" >> $GITHUB_OUTPUT
           echo "UTC Execution Time: $(date -u +'%Y-%m-%d %H:%M:%SZ')"
-          echo "IST Execution Time: $(TZ='Asia/Kolkata' date +'%Y-%m-%d %H:%M:%S %z')"
-          echo "Current IST Date: ${IST_DATE}"
+          echo "IST Execution Time: ${IST_TIME_STR} (Date: ${IST_DATE})"
+
+          H=$((10#$IST_HOUR))
+          M=$((10#$IST_MINUTE))
+
+          # Active window: 07:30 AM to 07:00 PM IST (07:30 - 19:00)
+          if { [ "$H" -eq 7 ] && [ "$M" -ge 30 ]; } || { [ "$H" -ge 8 ] && [ "$H" -lt 19 ]; }; then
+            echo "Within active execution window."
+            echo "active=true" >> $GITHUB_OUTPUT
+          else
+            echo "Outside active window (07:30 - 19:00 IST)."
+            echo "active=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Restore Daily Delivery Cache
         id: delivery-cache
-        if: ${{ !inputs.force }}
+        if: ${{ !inputs.force && steps.ist-info.outputs.active == 'true' }}
         uses: actions/cache/restore@v4
         with:
           path: .delivery_marker
           key: ie-delivered-${{ steps.ist-info.outputs.date }}
 
-      - name: Check If Already Delivered
+      - name: Check Execution Eligibility
         id: delivery-check
         run: |
+          # 1. User manual override
+          if [ "${{ inputs.force }}" = "true" ]; then
+            echo "Execution forced by user input. Proceeding with pipeline."
+            echo "skip=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # 2. Outside active hours (nighttime fast-skip)
+          if [ "${{ steps.ist-info.outputs.active }}" != "true" ]; then
+            echo "Current time is outside active hours (07:30 - 19:00 IST). Skipping execution."
+            echo "skip=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # 3. Already delivered today (daily delivery cache hit or sentinel file)
           if [ "${{ steps.delivery-cache.outputs.cache-hit }}" = "true" ] || [ -f ".delivery_marker" ]; then
             echo "Today's edition (${{ steps.ist-info.outputs.date }}) was ALREADY delivered earlier today."
             echo "Skipping further execution to preserve resources and prevent Telegram MTProto rate limits."
             echo "skip=true" >> $GITHUB_OUTPUT
           else
+            echo "Paper not recorded as delivered yet. Proceeding with automation pipeline."
             echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
