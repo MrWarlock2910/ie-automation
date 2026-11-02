@@ -103,7 +103,9 @@ jobs:
           API_HASH: ${{ secrets.API_HASH }}
           SESSION_STRING: ${{ secrets.SESSION_STRING }}
           APP_PASSWORD: ${{ secrets.APP_PASSWORD }}
-        run: python main.py
+        run: |
+          python inspect_channel.py
+          python main.py
 
       - name: Save Daily Delivery Cache
         if: steps.delivery-check.outputs.skip != 'true' && hashFiles('.delivery_marker') != ''
