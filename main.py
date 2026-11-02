@@ -1,10 +1,12 @@
 import os
 import sys
 import io
+import re
 import time
 import logging
 import asyncio
 import smtplib
+import unicodedata
 from datetime import datetime, timezone, timedelta
 from email.message import EmailMessage
 from telethon import TelegramClient
@@ -69,24 +71,93 @@ def is_already_delivered_locally(date_str: str) -> bool:
             return False
     return False
 
-def is_target_newspaper(filename: str, date_str: str) -> bool:
-    """Robust, casing- and delimiter-agnostic filename matcher for Mumbai editions."""
-    if not filename or not filename.lower().endswith(".pdf"):
+def is_target_newspaper(filename_or_text: str, target_date: datetime) -> bool:
+    """
+    Robust, unicode-normalized, casing-, delimiter-, and format-agnostic newspaper matcher.
+    Handles:
+    - Unicode superscripts/subscripts (e.g. ⁰¹¹¹²⁰²⁶ -> 01112026)
+    - Single-digit and zero-padded days/months (e.g. 2-11-2026 vs 02-11-2026)
+    - Delimiters (hyphens, dots, tildes, underscores, spaces, brackets)
+    - 2-digit and 4-digit years (26 vs 2026)
+    - ISO format (YYYYMMDD)
+    - Textual month names (Nov, November)
+    - Ordinal suffixes (1st, 2nd, 3rd, 4th)
+    """
+    if not filename_or_text:
         return False
+
+    # 1. NFKD normalization converts superscript/subscript digits to standard ASCII digits
+    text = unicodedata.normalize('NFKD', filename_or_text)
+    text_lower = text.lower()
+
+    # 2. Strip ordinal suffixes (1st, 2nd, 3rd, 4th, 31st -> 1, 2, 3, 4, 31)
+    text_lower = re.sub(r'(\d+)(st|nd|rd|th)', r'\1', text_lower)
+
+    # 3. Clean all punctuation, delimiters, and whitespace
     cleaned = (
-        filename.lower()
+        text_lower
         .replace(" ", "")
         .replace("_", "")
+        .replace("-", "")
+        .replace(".", "")
+        .replace("~", "")
+        .replace("/", "")
         .replace("[", "")
         .replace("]", "")
         .replace("(", "")
         .replace(")", "")
-        .replace("-", "")
-        .replace(".", "")
     )
-    date_digits = date_str.replace("-", "").replace(".", "").replace("/", "")
-    is_mumbai = "iemumbai" in cleaned or "indianexpressmumbai" in cleaned or ("express" in cleaned and "mumbai" in cleaned)
-    return is_mumbai and date_digits in cleaned
+
+    # 4. Edition validation: must contain 'mumbai' and either 'ie' or 'express'
+    has_mumbai = "mumbai" in cleaned
+    has_ie_or_express = "ie" in cleaned or "express" in cleaned
+    if not (has_mumbai and has_ie_or_express):
+        return False
+
+    # 5. Build dynamic date pattern variants
+    d = target_date.day          # e.g. 2
+    d_str_2 = f"{d:02d}"         # "02"
+    d_str_1 = f"{d}"             # "2"
+
+    m = target_date.month        # e.g. 11
+    m_str_2 = f"{m:02d}"         # "11"
+    m_str_1 = f"{m}"             # "11" (or "1" for Jan)
+
+    y = target_date.year         # 2026
+    y_str_4 = f"{y}"             # "2026"
+    y_str_2 = f"{y % 100:02d}"   # "26"
+
+    month_name_short = target_date.strftime("%b").lower()  # "nov"
+    month_name_full = target_date.strftime("%B").lower()   # "november"
+
+    date_patterns = [
+        # DDMMYYYY: "02112026", "2112026", "0212026"
+        f"{d_str_2}{m_str_2}{y_str_4}",
+        f"{d_str_1}{m_str_2}{y_str_4}",
+        f"{d_str_2}{m_str_1}{y_str_4}",
+        f"{d_str_1}{m_str_1}{y_str_4}",
+        # DDMMYY: "021126", "21126"
+        f"{d_str_2}{m_str_2}{y_str_2}",
+        f"{d_str_1}{m_str_2}{y_str_2}",
+        f"{d_str_2}{m_str_1}{y_str_2}",
+        f"{d_str_1}{m_str_1}{y_str_2}",
+        # YYYYMMDD: "20261102", "2026112"
+        f"{y_str_4}{m_str_2}{d_str_2}",
+        f"{y_str_4}{m_str_2}{d_str_1}",
+        f"{y_str_4}{m_str_1}{d_str_2}",
+        f"{y_str_4}{m_str_1}{d_str_1}",
+        # With month name: "02nov2026", "2nov2026", "02november2026", etc.
+        f"{d_str_2}{month_name_short}{y_str_4}",
+        f"{d_str_1}{month_name_short}{y_str_4}",
+        f"{d_str_2}{month_name_short}{y_str_2}",
+        f"{d_str_1}{month_name_short}{y_str_2}",
+        f"{d_str_2}{month_name_full}{y_str_4}",
+        f"{d_str_1}{month_name_full}{y_str_4}",
+        f"{month_name_short}{d_str_2}{y_str_4}",
+        f"{month_name_short}{d_str_1}{y_str_4}",
+    ]
+
+    return any(pat in cleaned for pat in date_patterns)
 
 def send_email(pdf_bytes: bytes, filename: str, date_str: str, app_password: str) -> bool:
     """Construct EmailMessage payload directly from in-memory buffer and send via SMTP over Gmail with retries."""
@@ -197,13 +268,25 @@ async def run_pipeline(api_id: int, api_hash: str, session_str: str, app_passwor
 
                     logging.info(f"[Check #{attempt_count}] Scanning '{TARGET_CHANNEL}' for Mumbai edition ({date_str})...")
                     target_msg = None
-                    async for message in client.iter_messages(TARGET_CHANNEL, limit=25):
-                        if message.file and is_target_newspaper(message.file.name, date_str):
+                    async for message in client.iter_messages(TARGET_CHANNEL, limit=60):
+                        if not message.file:
+                            continue
+                        
+                        file_name = message.file.name or ""
+                        mime = message.file.mime_type or ""
+                        is_pdf = file_name.lower().endswith(".pdf") or "pdf" in mime.lower()
+                        if not is_pdf:
+                            continue
+
+                        # Check filename first, then message caption/text
+                        matched = is_target_newspaper(file_name, current_ist) or (message.text and is_target_newspaper(message.text, current_ist))
+                        if matched:
                             target_msg = message
                             break
 
                     if target_msg:
-                        logging.info(f"[MATCH FOUND] Target file: '{target_msg.file.name}'. Streaming into memory...")
+                        target_filename = target_msg.file.name if (target_msg.file and target_msg.file.name) else f"IE Mumbai [{date_str}].pdf"
+                        logging.info(f"[MATCH FOUND] Target file: '{target_filename}'. Streaming into memory...")
                         pdf_buffer = io.BytesIO()
                         await target_msg.download_media(file=pdf_buffer)
                         pdf_bytes = pdf_buffer.getvalue()
@@ -213,7 +296,7 @@ async def run_pipeline(api_id: int, api_hash: str, session_str: str, app_passwor
                             sys.exit(1)
 
                         logging.info(f"Memory download complete ({len(pdf_bytes)} bytes). Transmitting email...")
-                        attachment_name = target_msg.file.name or f"IE Mumbai [{date_str}].pdf"
+                        attachment_name = target_filename if target_filename.lower().endswith(".pdf") else f"{target_filename}.pdf"
                         email_sent = send_email(pdf_bytes, attachment_name, date_str, app_password)
 
                         if email_sent:
