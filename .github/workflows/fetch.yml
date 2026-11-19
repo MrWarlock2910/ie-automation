@@ -2,8 +2,9 @@ name: IE Automation Pipeline
 
 on:
   schedule:
-    - cron: '15 2 * * *'  # 02:15 UTC = 07:45 AM IST (Primary Morning Watcher Start)
-    - cron: '15 3 * * *'  # 03:15 UTC = 08:45 AM IST (Backup Morning Watcher Start)
+    - cron: '30 0 * * *'  # 00:30 UTC = 06:00 AM IST (Primary Morning Watcher Start)
+    - cron: '0 1 * * *'   # 01:00 UTC = 06:30 AM IST (Backup Morning Watcher)
+    - cron: '15 2 * * *'  # 02:15 UTC = 07:45 AM IST (Backup Morning Watcher)
   workflow_dispatch:
     inputs:
       force:
@@ -39,12 +40,12 @@ jobs:
           H=$((10#$IST_HOUR))
           M=$((10#$IST_MINUTE))
 
-          # Active window: 07:30 AM to 07:00 PM IST (07:30 - 19:00)
-          if { [ "$H" -eq 7 ] && [ "$M" -ge 30 ]; } || { [ "$H" -ge 8 ] && [ "$H" -lt 19 ]; }; then
+          # Active window: 06:00 AM to 07:00 PM IST (06:00 - 19:00)
+          if [ "$H" -ge 6 ] && [ "$H" -lt 19 ]; then
             echo "Within active execution window."
             echo "active=true" >> $GITHUB_OUTPUT
           else
-            echo "Outside active window (07:30 - 19:00 IST)."
+            echo "Outside active window (06:00 - 19:00 IST)."
             echo "active=false" >> $GITHUB_OUTPUT
           fi
 
@@ -68,7 +69,7 @@ jobs:
 
           # 2. Outside active hours (nighttime fast-skip)
           if [ "${{ steps.ist-info.outputs.active }}" != "true" ]; then
-            echo "Current time is outside active hours (07:30 - 19:00 IST). Skipping execution."
+            echo "Current time is outside active hours (06:00 - 19:00 IST). Skipping execution."
             echo "skip=true" >> $GITHUB_OUTPUT
             exit 0
           fi

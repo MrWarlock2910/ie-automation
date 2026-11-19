@@ -267,10 +267,10 @@ async def run_pipeline(api_id: int, api_hash: str, session_str: str, app_passwor
     hour = current_ist.hour
     minute = current_ist.minute
 
-    # 1. Active Window Guard: Only run between 07:30 AM and 07:00 PM IST
-    is_active = (hour == 7 and minute >= 30) or (8 <= hour < 19)
+    # 1. Active Window Guard: Only run between 06:00 AM and 07:00 PM IST
+    is_active = 6 <= hour < 19
     if not is_active:
-        logging.info(f"Current time ({current_ist.strftime('%H:%M:%S IST')}) is outside active hours (07:30 - 19:00 IST). Skipping.")
+        logging.info(f"Current time ({current_ist.strftime('%H:%M:%S IST')}) is outside active hours (06:00 - 19:00 IST). Skipping.")
         return
 
     date_str = get_ist_date()
