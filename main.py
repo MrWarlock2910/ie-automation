@@ -17,8 +17,11 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 
 SENDER_EMAIL = "soham.techanalogy@gmail.com"
 RECIPIENT_EMAIL = "lisakinny12@gmail.com"
-TARGET_CHANNEL = "Indian_Express_Newspaper_p"
 SMTP_SERVER = "smtp.gmail.com"
+
+# Telegram Channels: Primary (Private News Channel) and Backup (Free Channel)
+PRIMARY_CHANNEL_ID = -1003991569979           # "Private News Channel"
+BACKUP_CHANNEL_USERNAME = "Indian_Express_Newspaper_p"  # "INDIAN EXPRESS PDF (Free channel)"
 
 # Poll interval in seconds while actively watching for the morning paper
 POLL_INTERVAL_SECONDS = 45
@@ -74,6 +77,7 @@ def is_already_delivered_locally(date_str: str) -> bool:
 def is_target_newspaper(filename_or_text: str, target_date: datetime) -> bool:
     """
     Robust, unicode-normalized, casing-, delimiter-, and format-agnostic newspaper matcher.
+    Distinguishes Indian Express Mumbai from other newspapers in multi-newspaper channels (Mint, FE, ET, BL, TOI, HT, etc.).
     Handles:
     - Unicode superscripts/subscripts (e.g. ⁰¹¹¹²⁰²⁶ -> 01112026)
     - Single-digit and zero-padded days/months (e.g. 2-11-2026 vs 02-11-2026)
@@ -90,10 +94,23 @@ def is_target_newspaper(filename_or_text: str, target_date: datetime) -> bool:
     text = unicodedata.normalize('NFKD', filename_or_text)
     text_lower = text.lower()
 
-    # 2. Strip ordinal suffixes (1st, 2nd, 3rd, 4th, 31st -> 1, 2, 3, 4, 31)
+    # 2. Exclude other newspapers present in multi-paper channels:
+    # FE (Financial Express), ET (Economic Times), BL (Business Line), Mint, TOI, HT, Lokmat, Loksatta, etc.
+    excluded_keywords = [
+        '_fe_', '-fe-', ' fe ', '_fe.', '-fe.',
+        '_et_', '-et-', ' et ', '_et.', '-et.',
+        '_bl_', '-bl-', ' bl ', '_bl.', '-bl.',
+        'mint', 'toi', 'ht-', 'ht_', 'hindustan times', 'times of india',
+        'loksatta', 'lokmat', 'jagran', 'bhaskar', 'editorial', 'vocabulary'
+    ]
+    for excl in excluded_keywords:
+        if excl in text_lower:
+            return False
+
+    # 3. Strip ordinal suffixes (1st, 2nd, 3rd, 4th -> 1, 2, 3, 4)
     text_lower = re.sub(r'(\d+)(st|nd|rd|th)', r'\1', text_lower)
 
-    # 3. Clean all punctuation, delimiters, and whitespace
+    # 4. Clean all punctuation, delimiters, and whitespace
     cleaned = (
         text_lower
         .replace(" ", "")
@@ -108,16 +125,23 @@ def is_target_newspaper(filename_or_text: str, target_date: datetime) -> bool:
         .replace(")", "")
     )
 
-    # 4. Edition validation: must contain 'mumbai' and either 'ie' or 'express'
-    has_mumbai = "mumbai" in cleaned
-    has_ie_or_express = "ie" in cleaned or "express" in cleaned
-    if not (has_mumbai and has_ie_or_express):
+    # 5. Edition validation: must contain 'mumbai'
+    if "mumbai" not in cleaned:
         return False
 
-    # 5. Build dynamic date pattern variants
-    d = target_date.day          # e.g. 2
-    d_str_2 = f"{d:02d}"         # "02"
-    d_str_1 = f"{d}"             # "2"
+    # Must be Indian Express:
+    # 'iemumbai' or 'indianexpress' or ('express' and not any other express)
+    is_ie = "iemumbai" in cleaned or "indianexpress" in cleaned
+    if not is_ie:
+        if ("ie" in cleaned or "express" in cleaned) and not any(k in cleaned for k in ["fe", "et", "bl", "financial"]):
+            is_ie = True
+    if not is_ie:
+        return False
+
+    # 6. Build dynamic date pattern variants
+    d = target_date.day          # e.g. 19
+    d_str_2 = f"{d:02d}"         # "19"
+    d_str_1 = f"{d}"             # "19"
 
     m = target_date.month        # e.g. 11
     m_str_2 = f"{m:02d}"         # "11"
@@ -131,22 +155,25 @@ def is_target_newspaper(filename_or_text: str, target_date: datetime) -> bool:
     month_name_full = target_date.strftime("%B").lower()   # "november"
 
     date_patterns = [
-        # DDMMYYYY: "02112026", "2112026", "0212026"
+        # DDMMYYYY: "19112026"
         f"{d_str_2}{m_str_2}{y_str_4}",
         f"{d_str_1}{m_str_2}{y_str_4}",
         f"{d_str_2}{m_str_1}{y_str_4}",
         f"{d_str_1}{m_str_1}{y_str_4}",
-        # DDMMYY: "021126", "21126"
+        # DDMMYY: "191126"
         f"{d_str_2}{m_str_2}{y_str_2}",
         f"{d_str_1}{m_str_2}{y_str_2}",
         f"{d_str_2}{m_str_1}{y_str_2}",
         f"{d_str_1}{m_str_1}{y_str_2}",
-        # YYYYMMDD: "20261102", "2026112"
+        # DDMM (when year is omitted): "1911"
+        f"{d_str_2}{m_str_2}",
+        f"{d_str_1}{m_str_2}",
+        # YYYYMMDD: "20261119"
         f"{y_str_4}{m_str_2}{d_str_2}",
         f"{y_str_4}{m_str_2}{d_str_1}",
         f"{y_str_4}{m_str_1}{d_str_2}",
         f"{y_str_4}{m_str_1}{d_str_1}",
-        # With month name: "02nov2026", "2nov2026", "02november2026", etc.
+        # With month name: "19nov2026", "19november2026", etc.
         f"{d_str_2}{month_name_short}{y_str_4}",
         f"{d_str_1}{month_name_short}{y_str_4}",
         f"{d_str_2}{month_name_short}{y_str_2}",
@@ -212,6 +239,29 @@ Go get the day!
             return False
     return False
 
+async def scan_channel_for_paper(client, channel_identifier, channel_name: str, limit: int, current_ist: datetime):
+    """Scan a channel for today's Indian Express Mumbai PDF edition."""
+    logging.info(f"Scanning {channel_name} (limit={limit}) for Mumbai edition ({current_ist.strftime('%d-%m-%Y')})...")
+    try:
+        async for message in client.iter_messages(channel_identifier, limit=limit):
+            if not message.file:
+                continue
+
+            file_name = message.file.name or ""
+            mime = message.file.mime_type or ""
+            is_pdf = file_name.lower().endswith(".pdf") or "pdf" in mime.lower()
+            if not is_pdf:
+                continue
+
+            # Check filename first, then message caption/text
+            matched = is_target_newspaper(file_name, current_ist) or (message.text and is_target_newspaper(message.text, current_ist))
+            if matched:
+                logging.info(f"  -> Match confirmed in {channel_name}: '{file_name or message.text}'")
+                return message
+    except Exception as e:
+        logging.warning(f"Error while scanning {channel_name}: {e}")
+    return None
+
 async def run_pipeline(api_id: int, api_hash: str, session_str: str, app_password: str):
     current_ist = get_ist_now()
     hour = current_ist.hour
@@ -266,23 +316,27 @@ async def run_pipeline(api_id: int, api_hash: str, session_str: str, app_passwor
                         logging.info(f"Heartbeat scan limit ({MAX_WATCH_DURATION_MINUTES}m) reached without new upload. Exiting until next heartbeat.")
                         break
 
-                    logging.info(f"[Check #{attempt_count}] Scanning '{TARGET_CHANNEL}' for Mumbai edition ({date_str})...")
-                    target_msg = None
-                    async for message in client.iter_messages(TARGET_CHANNEL, limit=60):
-                        if not message.file:
-                            continue
-                        
-                        file_name = message.file.name or ""
-                        mime = message.file.mime_type or ""
-                        is_pdf = file_name.lower().endswith(".pdf") or "pdf" in mime.lower()
-                        if not is_pdf:
-                            continue
+                    logging.info(f"[Check #{attempt_count}] Searching for Mumbai edition ({date_str})...")
 
-                        # Check filename first, then message caption/text
-                        matched = is_target_newspaper(file_name, current_ist) or (message.text and is_target_newspaper(message.text, current_ist))
-                        if matched:
-                            target_msg = message
-                            break
+                    # Step 4A: Check Primary Channel (Private News Channel)
+                    target_msg = await scan_channel_for_paper(
+                        client=client,
+                        channel_identifier=PRIMARY_CHANNEL_ID,
+                        channel_name="Primary Channel ('Private News Channel')",
+                        limit=180,
+                        current_ist=current_ist
+                    )
+
+                    # Step 4B: If not found in Primary, check Backup Channel (Free Channel)
+                    if not target_msg:
+                        logging.info(f"Paper for {date_str} not found in Primary Channel. Checking Backup Channel...")
+                        target_msg = await scan_channel_for_paper(
+                            client=client,
+                            channel_identifier=BACKUP_CHANNEL_USERNAME,
+                            channel_name="Backup Channel ('INDIAN EXPRESS PDF (Free channel)')",
+                            limit=60,
+                            current_ist=current_ist
+                        )
 
                     if target_msg:
                         target_filename = target_msg.file.name if (target_msg.file and target_msg.file.name) else f"IE Mumbai [{date_str}].pdf"
@@ -309,7 +363,7 @@ async def run_pipeline(api_id: int, api_hash: str, session_str: str, app_passwor
                             logging.error("Email delivery failed after multiple retries.")
                             sys.exit(1)
 
-                    logging.info(f"Paper for {date_str} not published yet. Next check in {POLL_INTERVAL_SECONDS}s.")
+                    logging.info(f"Paper for {date_str} not published in primary or backup channel yet. Next check in {POLL_INTERVAL_SECONDS}s.")
                     await asyncio.sleep(POLL_INTERVAL_SECONDS)
             
             # Finished scan loop cleanly without matches
