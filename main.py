@@ -30,14 +30,41 @@ MAX_WATCH_DURATION_MINUTES = 2
 SENTINEL_FILE = ".delivery_marker"
 
 PERSONALIZED_QUOTES = [
-    "Go get the day, my stunning lady! You've got this.",
-    "Good morning gorgeous! Go out there and shine bright today.",
-    "Believe in yourself today as much as I believe in you every single second.",
-    "Remember today how brilliant, strong, and deeply loved you are.",
-    "Go conquer the world today, my stunning girl!",
-    "Start your day with a smile and know that I'm always cheering for you.",
-    "Whatever you tackle today, you're going to crush it. Go get 'em, my lady!",
-    "Wake up and be awesome! Wishing you an extraordinary day ahead."
+    "Hi my counsel madam, here is your newspaper. Grab your morning coffee, go get the day, and make sure to take care of yourself, your body, your mental health, and this heart of mine that you’ve stolen.",
+    "Good morning Advocate Mam! Go command that courtroom with all the grace and brilliance you possess. Just promise me you won't skip lunch between hearings today, okay Ninu?",
+    "Rise and shine, my aloo. Remember that no judge or tough opposition has anything on you when you’re prepared. Sip your coffee, breathe, and go show them how it’s done.",
+    "Morning Princess. The legal fraternity isn’t ready for the storm you’re bringing today. Stand tall, speak with conviction, and don't forget to drink plenty of water between your matters.",
+    "Good morning Bu! Here is your daily dose of news before you dive into those thick briefs. Remember to be gentle on yourself today—you're doing extraordinarily well, and I’m always in your corner.",
+    "Hi my tamatar. Before you run off to conquer the bench and argue your points, take five quiet minutes with your coffee. You own my whole heart, aloo kahika, now go own the day.",
+    "Good morning Madam Counsel. Whatever challenges land on your desk or courtroom roster today, tackle them one by one. You have the sharpest mind and the kindest soul I know.",
+    "Morning Ninu! Don't let courtroom stress weigh your shoulders down. You are brilliant, fiercely capable, and deeply loved every second of every day. Go get 'em, Princess.",
+    "Hi Bu. Just your daily reminder that while you're busy winning arguments and managing litigation chaos, you need to protect your peace. Have your coffee warm, and stay hydrated today.",
+    "Good morning my aloo! Here’s today’s paper to accompany your morning brew. Go light up that courtroom today, but make sure you take a breather when things get hectic.",
+    "Morning Advocate Mam! You argue like a lioness in court, but to me, you'll always be my sweet tamatar. Don’t rush out the door without breakfast, and crush your hearings today.",
+    "Good morning Princess. Take a deep breath before you put on your robes today. You've earned your place, your preparation is solid, and you're going to be remarkable.",
+    "Hi my counsel madam. I hope your coffee is hot and your arguments are untouchable today. Remember to stretch, take screen breaks, and keep that gorgeous smile intact.",
+    "Morning Bu! Another day to prove why you’re the most formidable advocate around. Just remember to take care of your body and mental health amid the hustle, aloo kahika.",
+    "Good morning Ninu. Out there you're the sharp-witted counsel who backs down from nothing; in here you have my heart completely wrapped around your finger. Have an incredible day!",
+    "Rise and shine, my tamatar! Sip your morning coffee slowly before the courtroom bell rings. Whatever today brings, I know you’ll handle it with unmatched elegance.",
+    "Morning Madam Counsel. Watching your dedication and grit inspires me every single day. Go argue your heart out, but remember your peace comes first. I love you.",
+    "Good morning Princess. Here is today's paper for my favorite legal mind. Take a moment to ground yourself, drink some water, and remember how fiercely capable you are.",
+    "Hi my aloo! Legal briefs can wait five minutes while you savor your coffee. Step into court with your chin up and eyes steady—you’ve got this completely under control.",
+    "Good morning Advocate Mam! May your judges be attentive, your witnesses cooperative, and your coffee extra strong today. Go shine bright, my Ninu.",
+    "Morning Bu. Just wanted to remind you today that you don’t have to carry the weight of the entire world on your shoulders. One hearing at a time, one case at a time. I’m right behind you.",
+    "Hi my counsel madam, here is your newspaper. Don’t let courtroom fatigue dim your spark today. Eat well, stay hydrated, and remember how wildly proud I am of you.",
+    "Good morning my tamatar! The legal profession is lucky to have your sharp intellect and integrity. Go conquer the roster today, aloo kahika!",
+    "Morning Princess. When you stand up to speak today, remember the quiet strength that lives inside you. You command respect effortlessly. Have a stellar day, Ninu.",
+    "Good morning Bu! Finish that morning cup of coffee and step into the day knowing you are deeply cherished, respected, and believed in without question.",
+    "Hi Madam Counsel. Courtrooms can be noisy and chaotic, but your mind is always clear and steady. Take your lunch break on time today, no excuses!",
+    "Morning my aloo! Here is your daily paper. Go win your cases, outsmart the room, and come home knowing you gave it your all. You’ve got my heart always.",
+    "Good morning Advocate Mam! Keep your calm, speak with authority, and take plenty of hydration breaks between arguments today. You’re truly one of a kind, Ninu.",
+    "Morning Princess! Before the court clerk calls your matter, take one deep breath and smile. You belong right where you are, doing what you love. Shine on, my tamatar.",
+    "Hi Bu, here is your morning read. Protect your energy, guard your mental peace, and remember that no matter how hectic the day gets, you are my favorite person in the whole universe.",
+    "Good morning my counsel madam. Pour that coffee, review your notes with confidence, and walk into court like the absolute powerhouse you are.",
+    "Morning Ninu! Just a sweet reminder from the guy whose heart you stole: take care of yourself, breathe easy between hearings, and go show them what true advocacy looks like.",
+    "Rise and shine, aloo kahika! Another day, another set of courtroom victories waiting for you. Stay hydrated, eat your meals on time, and make today count.",
+    "Good morning Madam Counsel. Watching you build your career with so much grace and tenacity is my greatest joy. Go own that courtroom today, my Princess.",
+    "Morning Bu! May your coffee be potent, your courtroom transit smooth, and your arguments devastatingly persuasive. Have a wonderful day ahead, my tamatar."
 ]
 
 def get_ist_now() -> datetime:
@@ -195,14 +222,15 @@ def send_email(pdf_bytes: bytes, filename: str, date_str: str, app_password: str
     msg["To"] = RECIPIENT_EMAIL
     msg["Subject"] = f"Indian Express Mumbai - [{date_str}]"
     
-    email_body = f"""Good morning, my stunning lady! ❤️
+    email_body = f"""Good morning, Madam Counsel! ❤️
 
 Here is today's Indian Express newspaper for you ({date_str}).
 
-✨ Thought of the Day:
+✨ Note for the day:
 "{quote}"
 
-Go get the day!
+Always in your corner,
+Go conquer the day!
 """
     msg.set_content(email_body)
     msg.add_attachment(
