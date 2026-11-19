@@ -15,19 +15,21 @@ async def inspect_new_channel():
     session_str = os.environ["SESSION_STRING"]
 
     async with TelegramClient(StringSession(session_str), api_id, api_hash) as client:
-        logging.info(f"Connected to Telegram. Fetching entity for {NEW_CHANNEL_ID}...")
         entity = await client.get_entity(NEW_CHANNEL_ID)
-        logging.info(f"Target Channel Entity: {entity.title} (ID: {entity.id})")
-        
         count = 0
-        print("\n=== RECENT MESSAGES IN PRIVATE NEWS CHANNEL ===")
-        async for msg in client.iter_messages(entity, limit=50):
+        print("\n=== MESSAGES 51-150 IN PRIVATE NEWS CHANNEL ===")
+        # Offset 50
+        async for msg in client.iter_messages(entity, limit=120):
             count += 1
             file_name = msg.file.name if msg.file else None
             file_size = msg.file.size if msg.file else None
             date_time = msg.date.strftime("%Y-%m-%d %H:%M:%S UTC")
             text = (msg.text or "").replace("\n", " ")[:80]
-            print(f"[{count:02d}] Date: {date_time} | File: {ascii(file_name)} ({file_size} B) | Text: {ascii(text)}")
+            # print if matches 'express' or 'ie' or 'mumbai' or 'indian'
+            fn_lower = (file_name or "").lower()
+            t_lower = text.lower()
+            if any(k in fn_lower or k in t_lower for k in ['ie', 'express', 'mumbai', 'indian']) or count > 50:
+                print(f"[{count:03d}] Date: {date_time} | File: {ascii(file_name)} ({file_size} B) | Text: {ascii(text)}")
 
 if __name__ == "__main__":
     asyncio.run(inspect_new_channel())
